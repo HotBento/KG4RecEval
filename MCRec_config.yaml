@@ -1,0 +1,8 @@
+embedding_size: 128
+metapath_type:  ['uiui', 'uiei', 'uiii', 'uii']
+feature_size:   128
+path_num:       5
+sample_size:    10
+MLP_layers:     [512, 256, 128, 64]
+mp_embed_size:  128
+att_size:       128

@@ -15,6 +15,7 @@ from recbole.data import create_dataset, data_preparation
 from recbole.data.interaction import Interaction
 from recbole.model.knowledge_aware_recommender import CFKG
 
+import torch.profiler as profiler
 
 """
 MCRec
@@ -49,9 +50,9 @@ class MCRec(KnowledgeRecommender):
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax()
 
-        self.conv_dict:dict[str, nn.Conv1d] = dict()
+        self.conv_dict:nn.ModuleDict[str, nn.Conv1d] = nn.ModuleDict()
         for mp_type in self.metapath_type:
-            self.conv_dict[mp_type] = nn.Conv1d(self.feature_size, self.mp_embed_size, 4, 1, padding='valid')
+            self.conv_dict[mp_type] = nn.Conv1d(self.feature_size, self.mp_embed_size, len(mp_type), 1, padding='valid', device=self.device)
 
         self.metapath_attention_layers = nn.ModuleList([
             nn.Linear(2*self.embedding_size+self.mp_embed_size, self.att_size),
@@ -207,7 +208,7 @@ class MCRec(KnowledgeRecommender):
         input = torch.concatenate([user_latent, metapath_latent], -1)
         output = self.user_attention_layer(input) # batch_size * embedding_size
         output = self.activation(output)
-        atten = self.softmax(output)
+        atten = self.softmax(output, dim=-1)
         output = torch.mul(user_latent, atten)
         return output
     
@@ -222,7 +223,7 @@ class MCRec(KnowledgeRecommender):
         input = torch.concatenate([item_latent, metapath_latent], -1)
         output = self.user_attention_layer(input) # batch_size * embedding_size
         output = self.activation(output)
-        atten = self.softmax(output)
+        atten = self.softmax(output, dim=-1)
         output = torch.mul(item_latent, atten)
         return output
     
@@ -233,22 +234,26 @@ class MCRec(KnowledgeRecommender):
         '''
         path_output = []
         for mp_type in self.metapath_type:
-            x = self.conv_dict[mp_type](metapath_latent_dict[mp_type].transpose(-1,-2)).transpose(-1,-2)
+            x = metapath_latent_dict[mp_type].reshape((-1, len(mp_type), self.mp_embed_size))
+            x = self.conv_dict[mp_type](x.transpose(-1,-2)).transpose(-1,-2)
+            x = x.reshape((-1, self.path_num, x.shape[-2], x.shape[-1]))
             x = self.activation(x)
-            x = torch.max(x,-2) # batch_size * path_num * mp_embed_size
-            x = self.dropout(0.5)
-            x = torch.max(x,-2) # batch_size * mp_embed_size
+            x, _ = torch.max(x,-2) # batch_size * path_num * mp_embed_size
+            x = self.dropout(x)
+            x, _ = torch.max(x,-2) # batch_size * mp_embed_size
             path_output.append(x)
         return torch.stack(path_output,-2) # batch_size * metapath_type_num * mp_embed_size
     
     def _get_metapath_latent_dict(self, user:torch.Tensor, item:torch.Tensor) -> dict[str, torch.Tensor]:
         metapath_latent_dict:dict[str, torch.Tensor] = dict()
+        user = user.tolist()
+        item = item.tolist()
         for mp in self.metapath_type:
             # batch_size * path_num * timestamps * feature_size
             metapath_latent_dict[mp] = torch.zeros((len(user), self.path_num, len(mp), self.feature_size), device=self.device)
             for index in range(len(user)):
-                u = int(user[index])
-                i = int(item[index])
+                u = user[index]
+                i = item[index]
                 if u not in self.metapath_dict[mp]:
                     continue
                 if i not in self.metapath_dict[mp][u]:
@@ -256,9 +261,9 @@ class MCRec(KnowledgeRecommender):
                 for j,path in enumerate(self.metapath_dict[mp][u][i]):
                     for k,node in enumerate(path):
                         if mp[k] == 'u':
-                            metapath_latent_dict[mp][index][j][k] = self.user_embedding[node]
+                            metapath_latent_dict[mp][index][j][k] = self.user_feature[node]
                         elif mp[k] == 'i' or mp[k] == 'e':
-                            metapath_latent_dict[mp][index][j][k] = self.entity_embedding[node]
+                            metapath_latent_dict[mp][index][j][k] = self.entity_feature[node]
                         else:
                             raise ValueError('Unknown meta-path.')
                         
@@ -281,10 +286,40 @@ class MCRec(KnowledgeRecommender):
         item_latent = item_latent.repeat(repeats)
 
         input = torch.concatenate([user_latent, item_latent, metapath_latent], -1) # batch_size * metapath_type_num * (mp_embed_size + 2*embedding_size)
-        output = self.metapath_attention_layers(input).squeeze(-1) # batch_size * metapath_type_num
-        atten = self.softmax(output) # batch_size * metapath_type_num
+        for mp_att_layer in self.metapath_attention_layers:
+            input = mp_att_layer(input)
+        output = input.squeeze(-1) # batch_size * metapath_type_num
+        atten = self.softmax(output, dim=-1) # batch_size * metapath_type_num
         output = torch.matmul(atten.unsqueeze(-2), metapath_latent).squeeze(-2)
         return output
+
+    '''
+    run time analysis
+    '''
+    # def forward(self, user:torch.Tensor, item:torch.Tensor) -> torch.Tensor:
+    #     with profiler.record_function("embedding"):
+    #         user_latent = self.user_embedding(user)
+    #         item_latent = self.entity_embedding(item)
+
+    #     with profiler.record_function("get_metapath_latent_dict"):
+    #         metapath_latent_dict = self._get_metapath_latent_dict(user, item)
+    #     with profiler.record_function("get_metapath_embedding"):
+    #         path_output = self._get_metapath_embedding(metapath_latent_dict) # batch_size * metapath_type_num * mp_embed_size
+    #     with profiler.record_function("metapath_attention"):
+    #         path_output = self._metapath_attention(user_latent, item_latent, path_output)
+    #     with profiler.record_function("ui_attention"):
+    #         user_attention = self._user_attention(user_latent, path_output)
+    #         item_attention = self._item_attention(item_latent, path_output)
+
+    #     with profiler.record_function("output"):
+    #         output = torch.concat([user_attention, path_output, item_attention], -1)
+    #         for layer in self.MLP:
+    #             output = layer(output)
+
+    #         output = self.predict_layer(output)
+    #         output = self.sigmoid(output)
+
+    #     return output
 
     def forward(self, user:torch.Tensor, item:torch.Tensor) -> torch.Tensor:
         user_latent = self.user_embedding(user)
@@ -292,13 +327,13 @@ class MCRec(KnowledgeRecommender):
 
         metapath_latent_dict = self._get_metapath_latent_dict(user, item)
         path_output = self._get_metapath_embedding(metapath_latent_dict) # batch_size * metapath_type_num * mp_embed_size
-        path_output = self._metapath_attention(user_latent, item_latent, self.att_size)
-
+        path_output = self._metapath_attention(user_latent, item_latent, path_output)
         user_attention = self._user_attention(user_latent, path_output)
         item_attention = self._item_attention(item_latent, path_output)
 
         output = torch.concat([user_attention, path_output, item_attention], -1)
-        output = self.MLP(output)
+        for layer in self.MLP:
+            output = layer(output)
 
         output = self.predict_layer(output)
         output = self.sigmoid(output)
@@ -313,8 +348,8 @@ class MCRec(KnowledgeRecommender):
         pos_output = self.forward(user, pos_item)
         neg_output = self.forward(user, neg_item)
 
-        predict = torch.cat((pos_output, neg_output))
-        target = torch.zeros(len(user) * 2, dtype=torch.float32).to(self.device)
+        predict = torch.cat((pos_output, neg_output)).view(-1)
+        target = torch.zeros(len(user) * 2, dtype=torch.float32, device=self.device)
         target[: len(user)] = 1
         rec_loss = self.bce_loss(predict, target)
 
@@ -323,14 +358,16 @@ class MCRec(KnowledgeRecommender):
     def predict(self, interaction:Interaction):
         user = interaction[self.USER_ID]
         item = interaction[self.ITEM_ID]
-        return self.forward(user, item)
+        return self.forward(user, item).view(-1)
 
     def full_sort_predict(self, interaction:Interaction):
         user_index = interaction[self.USER_ID]
-        item_index = torch.tensor(range(self.n_items)).to(self.device)
+        item_index = torch.tensor(range(self.n_items), device=self.device)
 
         user = torch.unsqueeze(user_index, dim=1).repeat(1, item_index.shape[0])
         user = torch.flatten(user)
         item = torch.unsqueeze(item_index, dim=0).repeat(user_index.shape[0], 1)
         item = torch.flatten(item)
-        return self.forward(user, item).view(-1)
+        result = self.forward(user, item).view(-1)
+
+        return result

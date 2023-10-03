@@ -13,7 +13,7 @@ from recbole.trainer import KGTrainer
 from recbole.config import Config
 from recbole.data import create_dataset, data_preparation
 from recbole.data.interaction import Interaction
-from recbole.model.knowledge_aware_recommender import CFKG
+from recbole.model.knowledge_aware_recommender import KGAT
 
 import torch.profiler as profiler
 
@@ -48,7 +48,7 @@ class MCRec(KnowledgeRecommender):
         self.dropout = nn.Dropout(0.5)
         self.activation = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=-1)
 
         self.conv_dict:nn.ModuleDict[str, nn.Conv1d] = nn.ModuleDict()
         for mp_type in self.metapath_type:
@@ -81,18 +81,18 @@ class MCRec(KnowledgeRecommender):
     def _generate_pretrain_embedding(self, ex_config, train_data, valid_data) -> tuple[torch.Tensor, torch.Tensor]:
         '''
         The original paper didn't provide the code for pre-training.
-        Here we use CFKG instead as it is more suitable for KG-based RSs.
+        Here we use KGAT instead as it is more suitable for KG-based RSs.
         '''
-        config_dict = {'embedding_size':self.feature_size, 'gpu_id':tuple(range(int(str(self.device).split(':')[-1]))), 'checkpoint_dir':'saved{}/'.format(str(self.device).split(':')[-1])}
-        config = Config(model=CFKG, dataset=ex_config["dataset"], config_dict=config_dict)
+        config_dict = {'embedding_size':self.feature_size, 'gpu_id':ex_config['gpu_id'], 'checkpoint_dir':'saved{}/'.format(str(self.device).split(':')[-1])}
+        config = Config(model=KGAT, dataset=ex_config["dataset"], config_dict=config_dict, config_file_list=['MCRec_pretrain_config.yaml'])
         config['device'] = self.device
         dataset = create_dataset(config)
         data_preparation(config, dataset)
-        model = CFKG(config, dataset).to(config['device'])
+        model = KGAT(config, dataset).to(config['device'])
         trainer = KGTrainer(config, model)
         trainer.fit(train_data, valid_data, show_progress=False)
-        self.entity_feature = model.entity_embedding.weight
-        self.user_feature = model.user_embedding.weight
+
+        self.user_feature, self.entity_feature = model.forward()
 
     def _sample_metapath(self, config:Config, train_data:KnowledgeBasedDataLoader, valid_data) -> dict[str,dict[int,dict[int,list]]]:
         '''
@@ -208,7 +208,7 @@ class MCRec(KnowledgeRecommender):
         input = torch.concatenate([user_latent, metapath_latent], -1)
         output = self.user_attention_layer(input) # batch_size * embedding_size
         output = self.activation(output)
-        atten = self.softmax(output, dim=-1)
+        atten = self.softmax(output)
         output = torch.mul(user_latent, atten)
         return output
     
@@ -223,7 +223,7 @@ class MCRec(KnowledgeRecommender):
         input = torch.concatenate([item_latent, metapath_latent], -1)
         output = self.user_attention_layer(input) # batch_size * embedding_size
         output = self.activation(output)
-        atten = self.softmax(output, dim=-1)
+        atten = self.softmax(output)
         output = torch.mul(item_latent, atten)
         return output
     
@@ -289,7 +289,7 @@ class MCRec(KnowledgeRecommender):
         for mp_att_layer in self.metapath_attention_layers:
             input = mp_att_layer(input)
         output = input.squeeze(-1) # batch_size * metapath_type_num
-        atten = self.softmax(output, dim=-1) # batch_size * metapath_type_num
+        atten = self.softmax(output) # batch_size * metapath_type_num
         output = torch.matmul(atten.unsqueeze(-2), metapath_latent).squeeze(-2)
         return output
 

@@ -8,6 +8,7 @@ from shutil import copyfile
 from recbole.data.interaction import Interaction
 from recbole.model.knowledge_aware_recommender import *
 from CorrectRippleNet import CorrectRippleNet
+from CorrectKGIN import CorrectKGIN
 from MCRec import MCRec
 
 from recbole.data.dataset.kg_dataset import KnowledgeBasedDataset
@@ -105,7 +106,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Experiment type
     parser.add_argument('--experiment', type=str, default='false',
-                        choices=['false', 'decrease', 'size', 'coldstart'],
+                        choices=['false', 'decrease', 'size', 'coldstart', 'noknowledge'],
                         help='Choose the type of experiment.'
                         )
     # General settings
@@ -113,12 +114,12 @@ def parse_args():
                         choices=['movielens-100k', 'Amazon_Books-part', 'lfm1b-tracks-part'],
                         help='Choose the dataset.')
     parser.add_argument('--model', type=str, nargs='+',
-                        default=['KGCN', 'RippleNet', 'CFKG', 'CKE', 'KGIN', 'KGNNLS', 'KTUP'],
+                        default=['KGCN', 'RippleNet', 'CFKG', 'CKE', 'KGIN', 'KGNNLS', 'KTUP', 'MCRec'],
                         help='Choose the type of models.')
     parser.add_argument('--worker_num', type=int, default=1,
                         help='Number of workers. No more than the gpu number.')
     parser.add_argument('--rate', type=float, nargs='+',
-                        default=[0, 0.25, 0.5, 0.75, 1.0],
+                        default=[1.0],
                         help='Rate list of the experiments.')
     parser.add_argument('--topk', type=float, nargs='+', default=[10],
                         help='Length of recommendation list used in evaluation.')
@@ -129,7 +130,7 @@ def parse_args():
                         help='Evaluation metrics.')
     # Experiment settings
     parser.add_argument('--test_type_list', type=str, nargs='+',
-                        default=['kg'],
+                        default=['fact'],
                         help='Detailed experiment type.')
     # Only for cold start experiment
     parser.add_argument('--test_user_ratio', type=float, default=0.1,
@@ -149,7 +150,7 @@ def get_model(model_type_str: str):
     elif model_type_str == 'CKE':
         model_type = CKE
     elif model_type_str == 'KGIN':
-        model_type = KGIN
+        model_type = CorrectKGIN
     elif model_type_str == 'KGNNLS':
         model_type = KGNNLS
     elif model_type_str == 'KTUP':

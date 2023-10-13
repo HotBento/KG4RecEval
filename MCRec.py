@@ -13,7 +13,7 @@ from recbole.trainer import KGTrainer
 from recbole.config import Config
 from recbole.data import create_dataset, data_preparation
 from recbole.data.interaction import Interaction
-from recbole.model.knowledge_aware_recommender import KGAT
+from CorrectKGIN import CorrectKGIN as KGIN
 
 import torch.profiler as profiler
 
@@ -81,18 +81,18 @@ class MCRec(KnowledgeRecommender):
     def _generate_pretrain_embedding(self, ex_config, train_data, valid_data) -> tuple[torch.Tensor, torch.Tensor]:
         '''
         The original paper didn't provide the code for pre-training.
-        Here we use KGAT instead as it is more suitable for KG-based RSs.
+        Here we use KGIN instead as it is more suitable for KG-based RSs.
         '''
         config_dict = {'embedding_size':self.feature_size, 'gpu_id':ex_config['gpu_id'], 'checkpoint_dir':'saved{}/'.format(str(self.device).split(':')[-1])}
-        config = Config(model=KGAT, dataset=ex_config["dataset"], config_dict=config_dict, config_file_list=['MCRec_pretrain_config.yaml'])
+        config = Config(model=KGIN, dataset=ex_config["dataset"], config_dict=config_dict, config_file_list=['MCRec_pretrain_config.yaml', 'KGIN_config.yaml'])
         config['device'] = self.device
         dataset = create_dataset(config)
         data_preparation(config, dataset)
-        model = KGAT(config, dataset).to(config['device'])
+        model = KGIN(config, dataset, train_data).to(config['device'])
         trainer = KGTrainer(config, model)
         trainer.fit(train_data, valid_data, show_progress=False)
 
-        self.user_feature, self.entity_feature = model.forward()
+        self.user_feature, self.entity_feature, _ = model.forward()
 
     def _sample_metapath(self, config:Config, train_data:KnowledgeBasedDataLoader, valid_data) -> dict[str,dict[int,dict[int,list]]]:
         '''

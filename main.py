@@ -4,7 +4,7 @@ import torch.multiprocessing as mp
 
 from utils import parse_args
 from eval import evaluate_kg, cold_start_evaluate
-import false_experiment, size_experiment, cold_start_experiment, decrease_experiment
+import false_experiment, size_experiment, cold_start_experiment, decrease_experiment, noknowledge_experiment
 
 def run(args_queue:mp.Queue, device:torch.device):
     cnt = 0
@@ -34,6 +34,8 @@ def run(args_queue:mp.Queue, device:torch.device):
             run_once = cold_start_experiment.run_once
         elif experiment == 'decrease':
             run_once = decrease_experiment.run_once
+        elif experiment == 'noknowledge':
+            run_once = noknowledge_experiment.run_once
         else:
             raise NameError('Invalid experiment.')
 
@@ -58,9 +60,9 @@ def run(args_queue:mp.Queue, device:torch.device):
 
             if experiment == 'coldstart':
                 save_path = os.path.join(save_root, '{}_{}_{}.txt'.format(model_type_str, rate, args_dict['cs_threshold']))
-                p = mp.Process(target=cold_start_evaluate, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num])
+                p = mp.Process(target=cold_start_evaluate, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num, experiment])
             else:
-                p = mp.Process(target=evaluate_kg, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num])
+                p = mp.Process(target=evaluate_kg, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num, experiment])
             p.start()
             p.join()
         cnt += 1

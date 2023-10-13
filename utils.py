@@ -106,7 +106,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Experiment type
     parser.add_argument('--experiment', type=str, default='false',
-                        choices=['false', 'decrease', 'size', 'coldstart', 'noknowledge'],
+                        choices=['false', 'decrease', 'coldstart', 'noknowledge'],
                         help='Choose the type of experiment.'
                         )
     # General settings

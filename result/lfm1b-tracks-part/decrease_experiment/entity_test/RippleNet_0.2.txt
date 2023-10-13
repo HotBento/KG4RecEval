@@ -1,0 +1,2 @@
+Recall@10	MRR@10	NDCG@10	Hit@10	Precision@10
+0.786	0.7667	0.7049	0.9179	0.138

@@ -4,7 +4,7 @@ import torch.multiprocessing as mp
 
 from utils import parse_args
 from eval import evaluate_kg, cold_start_evaluate
-import false_experiment, size_experiment, cold_start_experiment, decrease_experiment, noknowledge_experiment
+import false_experiment, cold_start_experiment, decrease_experiment, noknowledge_experiment
 
 def run(args_queue:mp.Queue, device:torch.device):
     cnt = 0
@@ -28,8 +28,6 @@ def run(args_queue:mp.Queue, device:torch.device):
 
         if experiment == 'false':
             run_once = false_experiment.run_once
-        elif experiment == 'size':
-            run_once = size_experiment.run_once
         elif experiment == 'coldstart':
             run_once = cold_start_experiment.run_once
         elif experiment == 'decrease':

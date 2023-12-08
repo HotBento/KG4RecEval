@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pandas as pd
 
-from utils import copy_dataset, add_self_relation
+from utils import copy_dataset_and_filter, add_self_relation
 
 def run_once(args_dict:dict, device: torch.device):
     # Environment settings
@@ -17,7 +17,7 @@ def run_once(args_dict:dict, device: torch.device):
     fake_dataset = '{}-fake{}'.format(dataset_str, suffix)
     src_path = './dataset/{}/'.format(dataset_str)
     temp_path = os.path.join('./dataset/', fake_dataset)
-    copy_dataset(suffix, src_path, temp_path, dataset_str)
+    copy_dataset_and_filter(suffix, src_path, temp_path, dataset_str)
 
     inter_pd = pd.read_table(os.path.join(temp_path, fake_dataset+'.inter'))
     # use 'fact' as the default test type

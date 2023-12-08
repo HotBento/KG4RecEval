@@ -22,6 +22,7 @@ def run_once(args_dict:dict, device: torch.device):
                    'topk':topk, 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
 
     dataset = get_dataset(config_dict, dataset_str, model_type_str)
+    type_dict = {'user_id':'token', 'item_id':'token', 'rating':'float', 'timestamp':'float'}
 
     # Split the inter file into two files
     suffix = str(device).split(':')[-1]
@@ -48,10 +49,11 @@ def run_once(args_dict:dict, device: torch.device):
     train_item_token = [dataset.id2token('item_id', i) for i in train_df.loc[:,'item_id'].tolist()]
     train_df.loc[:,'user_id'] = train_user_token
     train_df.loc[:,'item_id'] = train_item_token
-    if dataset_str == 'lfm1b-tracks-part':
-        train_df.columns = ['user_id:token','item_id:token','timestamp:float']
-    else:
-        train_df.columns = ['user_id:token', 'item_id:token', 'rating:float', 'timestamp:float']
+    train_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in train_df.columns]
+    # if len(train_df.columns)==3:
+    #     train_df.columns = ['user_id:token','item_id:token','timestamp:float']
+    # else:
+    #     train_df.columns = ['user_id:token', 'item_id:token', 'rating:float', 'timestamp:float']
 
     test_user_token = [dataset.id2token('user_id', i) for i in test_df.loc[:,'user_id'].tolist()]
     test_item_token = [dataset.id2token('item_id', i) for i in test_df.loc[:,'item_id'].tolist()]

@@ -6,10 +6,9 @@ import os
 from shutil import copyfile
 
 from recbole.data.interaction import Interaction
-from recbole.model.knowledge_aware_recommender import *
-from CorrectRippleNet import CorrectRippleNet
-from CorrectKGIN import CorrectKGIN
+from recbole.model.knowledge_aware_recommender import KGCN, RippleNet, CKE, CFKG, KGIN, KGNNLS, KTUP, MKR
 from MCRec import MCRec
+from MCCLK import MCCLK
 
 from recbole.data.dataset.kg_dataset import KnowledgeBasedDataset
 
@@ -105,25 +104,25 @@ def full_sort_topk(uid_series, model, test_data, k, device=None):
 def parse_args():
     parser = argparse.ArgumentParser()
     # Experiment type
-    parser.add_argument('--experiment', type=str, default='false',
+    parser.add_argument('--experiment', type=str, default='noknowledge',
                         choices=['false', 'decrease', 'coldstart', 'noknowledge'],
                         help='Choose the type of experiment.'
                         )
     # General settings
-    parser.add_argument('--dataset', type=str, default='movielens-100k',
-                        choices=['movielens-100k', 'Amazon_Books-part', 'lfm1b-tracks-part'],
+    parser.add_argument('--dataset', type=str, default='Amazon-book',
+                        choices=['movielens-100k', 'Amazon_Books-part', 'lfm1b-tracks-part','movielens-10k','ml-1m','fastlm','book-crossing','ml-5k','Amazon-book','lfm-1b'],
                         help='Choose the dataset.')
     parser.add_argument('--model', type=str, nargs='+',
                         default=['KGCN', 'RippleNet', 'CFKG', 'CKE', 'KGIN', 'KGNNLS', 'KTUP', 'MCRec'],
                         help='Choose the type of models.')
-    parser.add_argument('--worker_num', type=int, default=1,
+    parser.add_argument('--worker_num', type=int, default=2,
                         help='Number of workers. No more than the gpu number.')
     parser.add_argument('--rate', type=float, nargs='+',
                         default=[1.0],
                         help='Rate list of the experiments.')
     parser.add_argument('--topk', type=float, nargs='+', default=[10],
                         help='Length of recommendation list used in evaluation.')
-    parser.add_argument('--eval_times', type=int, default=50,
+    parser.add_argument('--eval_times', type=int, default=10,
                         help='Evaluation times.')
     parser.add_argument('--metrics', type=str, nargs='+',
                         default=['Recall', 'MRR', 'NDCG', 'Hit', 'Precision'],
@@ -144,13 +143,13 @@ def get_model(model_type_str: str):
     if model_type_str == 'KGCN':
         model_type = KGCN
     elif model_type_str == 'RippleNet':
-        model_type = CorrectRippleNet
+        model_type = RippleNet
     elif model_type_str == 'CFKG':
         model_type = CFKG
     elif model_type_str == 'CKE':
         model_type = CKE
     elif model_type_str == 'KGIN':
-        model_type = CorrectKGIN
+        model_type = KGIN
     elif model_type_str == 'KGNNLS':
         model_type = KGNNLS
     elif model_type_str == 'KTUP':
@@ -182,6 +181,8 @@ def copy_dataset(suffix:str, src_path:str, temp_path:str, dataset_str:str):
     if not os.path.exists(temp_path):
         os.makedirs(temp_path)
     for src_file in os.listdir(src_path):
+        if os.path.isdir(os.path.join(src_path, src_file)):
+            continue
         temp_file = '{}-fake{}.{}'.format(dataset_str, suffix, src_file.split('.')[-1])
         copyfile(os.path.join(src_path, src_file), os.path.join(temp_path, temp_file))
 
@@ -212,3 +213,26 @@ def add_self_relation(dataset: str):
     with open(os.path.join('./dataset/', dataset, dataset + '.kg'), 'a') as dst_file:
         for i in entity_set:
             dst_file.write('{}\t{}\t{}\n'.format(i, 'self_to_self', i))
+
+def copy_dataset_and_filter(suffix:str, src_path:str, temp_path:str, dataset_str:str):
+    if not os.path.exists(temp_path):
+        os.makedirs(temp_path)
+    dataset = get_dataset({}, dataset_str)
+    type_dict = {'user_id':'token', 'item_id':'token', 'rating':'float', 'timestamp':'float', 'relation_id':'token', 'head_id':'token', 'tail_id':'token'}
+    inter_df = dataset.inter_feat.copy()
+    kg_df = dataset.kg_feat.copy()
+    link_df = pd.DataFrame({'item_id:token':dataset.item2entity.keys(), 'entity_id:token':dataset.item2entity.values()})
+
+    inter_df.loc[:,'user_id'] = dataset.id2token('user_id', inter_df.loc[:, 'user_id'])
+    inter_df.loc[:,'item_id'] = dataset.id2token('item_id', inter_df.loc[:, 'item_id'])
+
+    kg_df.loc[:,'head_id'] = dataset.id2token('entity_id', kg_df.loc[:, 'head_id'])
+    kg_df.loc[:,'relation_id'] = dataset.id2token('relation_id', kg_df.loc[:, 'relation_id'])
+    kg_df.loc[:,'tail_id'] = dataset.id2token('entity_id', kg_df.loc[:, 'tail_id'])
+
+    inter_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in inter_df.columns]
+    kg_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in kg_df.columns]
+
+    inter_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.inter'), sep='\t', index=False)
+    kg_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.kg'), sep='\t', index=False)
+    link_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.link'), sep='\t', index=False)

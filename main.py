@@ -56,17 +56,21 @@ def run(args_queue:mp.Queue, device:torch.device):
             save_path = os.path.join(save_root, '{}_{}.txt'.format(model_type_str, rate))
             fake_kg_path = '{}-fake{}'.format(dataset, suffix)
 
+            config_file = dataset + "_" + model_type_str + ".yaml"
+            if not os.path.exists(config_file):
+                config_file = None
             if experiment == 'coldstart':
                 save_path = os.path.join(save_root, '{}_{}_{}.txt'.format(model_type_str, rate, args_dict['cs_threshold']))
-                p = mp.Process(target=cold_start_evaluate, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num, experiment])
+                p = mp.Process(target=cold_start_evaluate, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, torch.cuda.device_count(), experiment,config_file])
             else:
-                p = mp.Process(target=evaluate_kg, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, worker_num, experiment])
+                p = mp.Process(target=evaluate_kg, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, torch.cuda.device_count(), experiment,config_file])
             p.start()
             p.join()
         cnt += 1
     return 0
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
     args = parse_args()
     queue = mp.Queue()
     offset = args.offset

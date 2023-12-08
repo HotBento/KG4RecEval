@@ -12,7 +12,7 @@ Tested on python 3.9 and Ubuntu 20.04.
 7. [torch_scatter](https://github.com/rusty1s/pytorch_scatter/tree/master)
 
 ## Dataset process
-You can simply use the processed dataset provided by us. If you want to process the dataset yourself, please refer to [recbole](https://recbole.io/) and our paper for details.
+Please refer to [recbole](https://recbole.io/) to download the datasets and our paper for details.
 
 ## Tips
 1. Our results are saved in ```./result```. If you want to run experiments, please move ```./result``` to other place or just delete it.

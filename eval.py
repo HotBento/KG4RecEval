@@ -186,5 +186,5 @@ def _renew_kg(dataset, train_data):
 
     interaction = Interaction(interaction)
 
-    dataset.kg_feat = interaction
-    return dataset
+    train_data._dataset.kg_feat = interaction
+    return train_data._dataset

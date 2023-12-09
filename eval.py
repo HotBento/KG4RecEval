@@ -17,6 +17,7 @@ from recbole.data import create_dataset, data_preparation
 from recbole.data.dataset import Dataset
 from recbole.data.interaction import Interaction
 import numpy as np
+from copy import deepcopy
 
 def evaluate_kg(model_type_str, device, topk, save_path=None, fake_kg_path='movielens-100k-fake', metrics=None, gpu_num=1, experiment_type=None, config_file=None):
     config_dict = {'seed':random.randint(0, 10000), 'gpu_id':tuple(range(gpu_num)), 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
@@ -110,7 +111,9 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
 
     # KG preparation for no knowledge experiment
     if experiment_type == 'noknowledge':
-        train_data._dataset = _renew_kg(dataset, train_data)
+        train_dataset = _renew_kg(dataset, train_data)
+    else:
+        train_dataset = train_data._dataset
 
     # model loading and initialization
     if model_type_str == 'MCRec':
@@ -118,7 +121,7 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
     # elif model_type_str == 'RippleNet' or model_type_str == 'KGIN':
     #     model = model_type(config, dataset, train_data).to(config['device'])
     else:
-        model = model_type(config, train_data._dataset).to(config['device'])
+        model = model_type(config, train_dataset).to(config['device'])
 
     # trainer loading and initialization
     trainer = KGTrainer(config, model)
@@ -186,5 +189,6 @@ def _renew_kg(dataset, train_data):
 
     interaction = Interaction(interaction)
 
-    train_data._dataset.kg_feat = interaction
-    return train_data._dataset
+    train_dataset = deepcopy(train_data._dataset)
+    train_dataset.kg_feat = interaction
+    return train_dataset

@@ -1,4 +1,4 @@
-# KGRecTest
+# KG4RecEval
 Official implement of paper "Does Knowledge Graph Really Matter for Recommender Systems?", SIGIR 2024.
 
 ## Requirements

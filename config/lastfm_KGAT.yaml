@@ -1,0 +1,4 @@
+layers: [128,64,32]
+learning_rate: 0.005
+mess_dropout': 0.1
+reg_weight: 0.0001

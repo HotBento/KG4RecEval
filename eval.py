@@ -1,7 +1,11 @@
 import os
 import pandas as pd
+import numpy as np
 import random
+import torch
+import torch.multiprocessing as mp
 from shutil import rmtree
+from copy import deepcopy
 
 from recbole.config.configurator import Config
 from recbole.model.knowledge_aware_recommender import *
@@ -9,18 +13,23 @@ from recbole.model.knowledge_aware_recommender import *
 from logging import getLogger
 from recbole.utils import init_logger, init_seed
 from utils import get_model
-from recbole.trainer import KGTrainer
+from recbole.trainer import KGTrainer, KGATTrainer
 from recbole.config import Config
 from recbole.sampler import Sampler
 from recbole.data.dataloader import FullSortEvalDataLoader
-from recbole.data import create_dataset, data_preparation
-from recbole.data.dataset import Dataset
+# from recbole.data.utils import create_dataset
+from recbole.data.dataset import Dataset, KnowledgeBasedDataset
 from recbole.data.interaction import Interaction
-import numpy as np
-from copy import deepcopy
 
-def evaluate_kg(model_type_str, device, topk, save_path=None, fake_kg_path='movielens-100k-fake', metrics=None, gpu_num=1, experiment_type=None, config_file=None):
-    config_dict = {'seed':random.randint(0, 10000), 'gpu_id':tuple(range(gpu_num)), 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
+from fixed_dataloader_utils import data_preparation, create_dataset
+
+def evaluate_kg(model_type_str, device, topk, save_path=None, modified_dataset='Movielens-1m',
+                metrics=None, experiment_type=None, config_file=None, seed=0, save_dataset=False, save_dataloaders=False, lock=None):
+    random.seed(seed)
+    torch.random.manual_seed(seed)
+    init_seed(seed, reproducibility=True)
+    config_dict = {'seed':seed, 'gpu_id':tuple(range(torch.cuda.device_count())), 'checkpoint_dir':f'./model_saved/{modified_dataset}',
+                   'save_dataset':save_dataset, 'save_dataloaders':save_dataloaders, 'eval_args':{'mode':'uni50'}, 'eval_batch_size':4096}
     if metrics != None:
         config_dict['metrics'] = metrics
     if topk != None:
@@ -29,35 +38,39 @@ def evaluate_kg(model_type_str, device, topk, save_path=None, fake_kg_path='movi
     if config_file != None:
         config_file_list.append(config_file)
     model_type = get_model(model_type_str)
-    if model_type_str == 'MCRec':
-        config_file_list.append('MCRec_config.yaml')
 
     # evaluation for fake kg
-    config = Config(model=model_type, dataset=fake_kg_path, config_file_list=config_file_list, config_dict=config_dict)
+    config = Config(model=model_type, dataset=modified_dataset, config_file_list=config_file_list, config_dict=config_dict)
     init_logger(config)
     logger = getLogger()
     # logger.info(config)
     config['device'] = device
 
-    # dataset filtering
-    dataset = create_dataset(config)
+    try:
+        if lock:
+            lock.acquire()
+        # dataset filtering
+        dataset = create_dataset(config)
 
-    # dataset splitting
-    train_data, valid_data, test_data = data_preparation(config, dataset)
+        # dataset splitting
+        train_data, valid_data, test_data = data_preparation(config, dataset)
+    finally:
+        if lock:
+            lock.release()
 
     # KG preparation for no knowledge experiment
     if experiment_type == 'noknowledge':
         train_data._dataset = _renew_kg(dataset, train_data)
 
     # model loading and initialization
-    if model_type_str == 'MCRec':
-        model = model_type(config, dataset, train_data, valid_data).to(config['device'])
-    else:
-        model = model_type(config, train_data._dataset).to(config['device'])
-        print("model transfer to device now")
+    model = model_type(config, train_data._dataset).to(config['device'])
+    # print("model transfer to device now")
 
     # trainer loading and initialization
-    trainer = KGTrainer(config, model)
+    if model_type_str == 'KGAT':
+        trainer = KGATTrainer(config, model)
+    else:
+        trainer = KGTrainer(config, model)
 
     # model training
     best_valid_score, best_valid_result = trainer.fit(train_data, valid_data, show_progress=False)
@@ -81,10 +94,15 @@ def evaluate_kg(model_type_str, device, topk, save_path=None, fake_kg_path='movi
         while not file.closed:
             file.close()
 
-    rmtree('./saved{}/'.format(str(device).split(':')[-1]))
+    # rmtree('./saved{}/'.format(str(device).split(':')[-1]))
 
-def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_path='movielens-100k-fake', metrics=None, gpu_num=1, experiment_type=None, config_file=None):
-    config_dict = {'seed':random.randint(0, 10000), 'gpu_id':tuple(range(gpu_num)), 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
+def cold_start_evaluate(model_type_str, device, topk, save_path=None, modified_dataset='Movielens-1m',
+                metrics=None, experiment_type=None, config_file=None, seed=0, save_dataset=False, save_dataloaders=False, lock=None):
+    random.seed(seed)
+    torch.random.manual_seed(seed)
+    init_seed(seed, reproducibility=True)
+    config_dict = {'seed':seed, 'gpu_id':tuple(range(torch.cuda.device_count())), 'checkpoint_dir':f'./model_saved/{modified_dataset}',
+                   'save_dataset':save_dataset, 'save_dataloaders':save_dataloaders, 'eval_args':{'mode':'uni50'}, 'eval_batch_size':4096}
     if metrics != None:
         config_dict['metrics'] = metrics
     if topk != None:
@@ -93,21 +111,24 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
     if config_file != None:
         config_file_list.append(config_file)
     model_type = get_model(model_type_str)
-    if model_type_str == 'MCRec':
-        config_file_list.append('MCRec_config.yaml')
 
-    config = Config(model=model_type, dataset=fake_kg_path, config_file_list=config_file_list, config_dict=config_dict)
+    config = Config(model=model_type, dataset=modified_dataset, config_file_list=config_file_list, config_dict=config_dict)
     init_logger(config)
     logger = getLogger()
     logger.info(config)
     config['device'] = device
     
+    try:
+        if lock:
+            lock.acquire()
+        # dataset filtering
+        dataset = create_dataset(config)
 
-    # dataset filtering
-    dataset = create_dataset(config)
-
-    # dataset splitting
-    train_data, valid_data, test_data = data_preparation(config, dataset)
+        # dataset splitting
+        train_data, valid_data, test_data = data_preparation(config, dataset)
+    finally:
+        if lock:
+            lock.release()
 
     # KG preparation for no knowledge experiment
     if experiment_type == 'noknowledge':
@@ -115,16 +136,13 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
     else:
         train_dataset = train_data._dataset
 
-    # model loading and initialization
-    if model_type_str == 'MCRec':
-        model = model_type(config, dataset, train_data, valid_data).to(config['device'])
-    # elif model_type_str == 'RippleNet' or model_type_str == 'KGIN':
-    #     model = model_type(config, dataset, train_data).to(config['device'])
-    else:
-        model = model_type(config, train_dataset).to(config['device'])
+    model = model_type(config, train_dataset).to(config['device'])
 
     # trainer loading and initialization
-    trainer = KGTrainer(config, model)
+    if model_type_str == 'KGAT':
+        trainer = KGATTrainer(config, model)
+    else:
+        trainer = KGTrainer(config, model)
 
     # model training
     best_valid_score, best_valid_result = trainer.fit(train_data, valid_data, show_progress=False)
@@ -135,7 +153,7 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
     logger.info('best valid result: {}'.format(best_valid_result))
     logger.info('test result: {}'.format(test_result))
 
-    cs_test_dataset = pd.read_table(os.path.join('./dataset', fake_kg_path, '{}.test'.format(fake_kg_path)))
+    cs_test_dataset = pd.read_table(os.path.join('./dataset', modified_dataset, '{}.test'.format(modified_dataset)))
 
     test_user_id = []
     test_item_id = []
@@ -179,7 +197,7 @@ def cold_start_evaluate(model_type_str, device, topk, save_path=None, fake_kg_pa
         while not file.closed:
             file.close()
 
-    rmtree('./saved{}/'.format(str(device).split(':')[-1]))
+    # rmtree('./saved{}/'.format(str(device).split(':')[-1]))
 
 def _renew_kg(dataset, train_data):
     head = dataset.token2id(dataset.entity_field, dataset.id2token(dataset.uid_field, train_data._dataset.inter_feat.user_id))

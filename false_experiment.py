@@ -6,29 +6,30 @@ import pandas as pd
 from utils import get_dataset, copy_dataset
 
 
-def run_once(args_dict:dict, device: torch.device):
+def run_once(args_dict:dict, dst_dataset:str, seed=0):
     # Environment settings
     dataset_str     : str   = args_dict['dataset']
     test_type       : str   = args_dict['test_type']
     rate            : float = args_dict['rate']
     model_type_str  : str   = args_dict['model_type_str']
     topk            : int   = args_dict['topk']
-    worker_num      : int   = args_dict['worker_num']
 
-    config_dict = {'seed':random.randint(0, 10000), 'gpu_id':tuple(range(worker_num)), 
-                   'topk':topk, 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
+    random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    config_dict = {'seed':seed, 'gpu_id':tuple(range(torch.cuda.device_count())), 
+                   'topk':topk, 'checkpoint_dir':'temp/'}
 
     dataset = get_dataset(config_dict, dataset_str, model_type_str)
 
     # Generate random kg
-    suffix = str(device).split(':')[-1]
-    src_path = './dataset/{}/'.format(dataset_str)
-    temp_path = os.path.join('./dataset/', '{}-fake{}'.format(dataset_str, suffix))
-    copy_dataset(suffix, src_path, temp_path, dataset_str)
+    src_path = os.path.join('./dataset/', dataset_str)
+    temp_path = os.path.join('./dataset/', dst_dataset)
+    copy_dataset(dataset_str, dst_dataset)
 
     if test_type == 'kg':
-        src_file = open(os.path.join(src_path, '{}.kg'.format(dataset_str)), 'r')
-        dst_file = open(os.path.join(temp_path, '{}-fake{}.kg'.format(dataset_str, suffix)), 'w')
+        src_file = open(os.path.join(src_path, f'{dataset_str}.kg'), 'r')
+        dst_file = open(os.path.join(temp_path, f'{dst_dataset}.kg'), 'w')
 
         is_first = True
         for line in src_file:

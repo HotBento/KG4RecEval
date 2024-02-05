@@ -6,18 +6,19 @@ import pandas as pd
 
 from utils import copy_dataset, add_self_relation
 
-def run_once(args_dict:dict, device: torch.device):
+def run_once(args_dict:dict, dst_dataset:str, seed=0):
     # Environment settings
     dataset_str     : str   = args_dict['dataset']
     test_type       : str   = args_dict['test_type']
     rate            : float = args_dict['rate']
 
+    random.seed(seed)
+    torch.random.manual_seed(seed)
+
     # Generate fake kg
-    suffix = str(device).split(':')[-1]
-    fake_dataset = '{}-fake{}'.format(dataset_str, suffix)
-    src_path = './dataset/{}/'.format(dataset_str)
-    temp_path = os.path.join('./dataset/', fake_dataset)
-    copy_dataset(suffix, src_path, temp_path, dataset_str)
+    src_path = os.path.join('./dataset/', dataset_str)
+    temp_path = os.path.join('./dataset/', dst_dataset)
+    copy_dataset(dataset_str, dst_dataset)
 
     src_pd = pd.read_table(os.path.join(src_path, dataset_str+'.kg'))
     if test_type == 'fact':
@@ -42,5 +43,5 @@ def run_once(args_dict:dict, device: torch.device):
     else:
         raise ValueError('Unsupported test type.')
     
-    dst_pd.to_csv(os.path.join(temp_path, fake_dataset + '.kg'), '\t', index=False)
-    add_self_relation(fake_dataset)
+    dst_pd.to_csv(os.path.join(temp_path, dst_dataset + '.kg'), '\t', index=False)
+    add_self_relation(dst_dataset)

@@ -1,0 +1,3 @@
+learning_rate: 0.001
+loss_function: 'transe'
+margin: 2.0

@@ -6,34 +6,33 @@ import numpy as np
 
 from utils import get_dataset, copy_dataset, add_self_relation
 
-def run_once(args_dict:dict, device: torch.device):
+def run_once(args_dict:dict, dst_dataset:str, seed=0):
     # Environment settings
     dataset_str     : str   = args_dict['dataset']
     test_type       : str   = args_dict['test_type']
     rate            : float = args_dict['rate']
     model_type_str  : str   = args_dict['model_type_str']
     topk            : int   = args_dict['topk']
-    worker_num      : int   = args_dict['worker_num']
-    ptr             : int   = args_dict['ptr']
     all_test_users  : list  = args_dict['all_test_users']
     cs_threshold    : int   = args_dict['cs_threshold']
 
-    config_dict = {'seed':random.randint(0, 10000), 'gpu_id':tuple(range(worker_num)), 
-                   'topk':topk, 'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
+    random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    config_dict = {'seed':seed, 'gpu_id':tuple(range(torch.cuda.device_count())), 
+                   'topk':topk, 'checkpoint_dir':'temp/'}
 
     dataset = get_dataset(config_dict, dataset_str, model_type_str)
     type_dict = {'user_id':'token', 'item_id':'token', 'rating':'float', 'timestamp':'float'}
 
     # Split the inter file into two files
-    suffix = str(device).split(':')[-1]
-    fake_dataset = '{}-fake{}'.format(dataset_str, suffix)
-    src_path = './dataset/{}/'.format(dataset_str)
-    temp_path = os.path.join('./dataset/', fake_dataset)
-    copy_dataset(suffix, src_path, temp_path, dataset_str)
+    src_path = os.path.join('./dataset/', dataset_str)
+    temp_path = os.path.join('./dataset/', dst_dataset)
+    copy_dataset(dataset_str, dst_dataset)
 
     test_df = pd.DataFrame([], columns=dataset.inter_feat.columns)
     train_df = dataset.inter_feat.copy()
-    test_user_list = all_test_users[ptr]
+    test_user_list = all_test_users[seed]
     for user in test_user_list:
         user_inter = dataset.inter_feat.loc[dataset.inter_feat.loc[:, 'user_id']==user,['user_id', 'item_id']]
         index = list(user_inter.index)
@@ -50,21 +49,17 @@ def run_once(args_dict:dict, device: torch.device):
     train_df.loc[:,'user_id'] = train_user_token
     train_df.loc[:,'item_id'] = train_item_token
     train_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in train_df.columns]
-    # if len(train_df.columns)==3:
-    #     train_df.columns = ['user_id:token','item_id:token','timestamp:float']
-    # else:
-    #     train_df.columns = ['user_id:token', 'item_id:token', 'rating:float', 'timestamp:float']
 
     test_user_token = [dataset.id2token('user_id', i) for i in test_df.loc[:,'user_id'].tolist()]
     test_item_token = [dataset.id2token('item_id', i) for i in test_df.loc[:,'item_id'].tolist()]
     test_df.loc[:,'user_id'] = test_user_token
     test_df.loc[:,'item_id'] = test_item_token
 
-    test_df.to_csv(os.path.join(temp_path, fake_dataset + '.test'), sep='\t', index=False)
-    train_df.to_csv(os.path.join(temp_path, fake_dataset + '.inter'), sep='\t', index=False)
+    test_df.to_csv(os.path.join(temp_path, dst_dataset + '.test'), sep='\t', index=False)
+    train_df.to_csv(os.path.join(temp_path, dst_dataset + '.inter'), sep='\t', index=False)
     if test_type == 'random':
         src_file = open(os.path.join(src_path, dataset_str + '.kg'), 'r')
-        dst_file = open(os.path.join(temp_path, fake_dataset + '.kg'), 'w')
+        dst_file = open(os.path.join(temp_path, dst_dataset + '.kg'), 'w')
 
         is_first = True
         for line in src_file:
@@ -88,14 +83,14 @@ def run_once(args_dict:dict, device: torch.device):
         if test_type == 'd_fact':
             n_fact = src_pd.shape[0]
             dst_pd = src_pd.sample(round(n_fact*rate))
-            dst_pd.to_csv(os.path.join(temp_path, fake_dataset + '.kg'), '\t', index=False)
+            dst_pd.to_csv(os.path.join(temp_path, dst_dataset + '.kg'), '\t', index=False)
         elif test_type == 'd_relation':
             relation_set = set(src_pd.loc[:, 'relation_id:token'].tolist())
             n_relation = len(relation_set)
             drop_relation_set = set(random.sample(list(relation_set), k=round(n_relation*(1-rate))))
 
             dst_pd = src_pd.loc[~src_pd.loc[:, 'relation_id:token'].isin(drop_relation_set), :]
-            dst_pd.to_csv(os.path.join(temp_path, fake_dataset + '.kg'), '\t', index=False)
+            dst_pd.to_csv(os.path.join(temp_path, dst_dataset + '.kg'), '\t', index=False)
         elif test_type == 'd_entity':
             entity_set = set(src_pd.loc[:, 'head_id:token'].tolist())
             entity_set.update(set(src_pd.loc[:, 'tail_id:token'].tolist()))
@@ -103,10 +98,10 @@ def run_once(args_dict:dict, device: torch.device):
             drop_entity_set = set(random.sample(list(entity_set), k=round(n_entity*(1-rate))))
 
             dst_pd = src_pd.loc[~(src_pd.loc[:,'head_id:token'].isin(drop_entity_set) | src_pd.loc[:, 'tail_id:token'].isin(drop_entity_set)), :]
-            dst_pd.to_csv(os.path.join(temp_path, fake_dataset + '.kg'), '\t', index=False)
+            dst_pd.to_csv(os.path.join(temp_path, dst_dataset + '.kg'), '\t', index=False)
     elif test_type[0] == 's':
         src_file = open(os.path.join(src_path, '{}.kg'.format(dataset_str)), 'r')
-        dst_file = open(os.path.join(temp_path, fake_dataset + '.kg'), 'w')
+        dst_file = open(os.path.join(temp_path, dst_dataset + '.kg'), 'w')
 
         fact_num = len(src_file.readlines()) - 1
         entity_token_array = dataset.field2id_token['entity_id']
@@ -147,11 +142,11 @@ def run_once(args_dict:dict, device: torch.device):
         while not dst_file.closed:
             dst_file.close()
 
-    add_self_relation(fake_dataset)
+    add_self_relation(dst_dataset)
         
 
-def generate_test_user_list(con, dataset_str:str, test_user_ratio:float, device=torch.device('cuda:0')):
-    config_dict = {'seed':random.randint(0, 10000),'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
+def generate_test_user_list(con, dataset_str:str, test_user_ratio:float, device=torch.device('cuda:0'), seed=0):
+    config_dict = {'seed':seed,'checkpoint_dir':'saved{}/'.format(str(device).split(':')[-1])}
 
     dataset = get_dataset(config_dict, dataset_str)
     test_user_num = round(test_user_ratio * dataset.user_num)

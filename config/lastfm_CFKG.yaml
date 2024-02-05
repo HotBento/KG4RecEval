@@ -1,0 +1,4 @@
+learning_rate: 0.01
+loss_function: 'transe'
+margin: 1.0
+gpu_id: 5

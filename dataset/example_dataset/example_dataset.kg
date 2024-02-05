@@ -1,5 +1,0 @@
-head_id:token	relation_id:token	tail_id:token
-g.121jch8r	film.film_casting_director.films_casting_directed	m.0crwchk
-m.011kf1wt	film.writer.film	m.09m5f_
-m.01hw5jq	music.soundtrack.film	m.01dc8g
-m.01jfclc	film.music_contributor.film	m.0_b3d

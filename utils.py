@@ -6,9 +6,9 @@ import os
 from shutil import copyfile
 
 from recbole.data.interaction import Interaction
-from recbole.model.knowledge_aware_recommender import KGCN, RippleNet, CKE, CFKG, KGIN, KGNNLS, KTUP, MKR
-from MCRec import MCRec
-from MCCLK import MCCLK
+from recbole.model.knowledge_aware_recommender import KGCN, RippleNet, CKE, CFKG, KGIN, KGNNLS, KTUP, MKR, KGAT
+# from MCRec import MCRec
+# from MCCLK import MCCLK
 
 from recbole.data.dataset.kg_dataset import KnowledgeBasedDataset
 
@@ -110,10 +110,10 @@ def parse_args():
                         )
     # General settings
     parser.add_argument('--dataset', type=str, default='Amazon-book',
-                        choices=['movielens-100k', 'Amazon_Books-part', 'lfm1b-tracks-part','movielens-10k','ml-1m','fastlm','book-crossing','ml-5k','Amazon-book','lfm-1b'],
+                        choices=['book-crossing', 'lastfm', 'Movielens-1m', 'Amazon_Books'],
                         help='Choose the dataset.')
     parser.add_argument('--model', type=str, nargs='+',
-                        default=['KGCN', 'RippleNet', 'CFKG', 'CKE', 'KGIN', 'KGNNLS', 'KTUP', 'MCRec'],
+                        default=['KGCN', 'RippleNet', 'CFKG', 'CKE', 'KGIN', 'KGNNLS', 'KTUP', 'KGAT'],
                         help='Choose the type of models.')
     parser.add_argument('--worker_num', type=int, default=2,
                         help='Number of workers. No more than the gpu number.')
@@ -137,6 +137,8 @@ def parse_args():
     parser.add_argument('--cs_threshold', type=int, default=1,
                         help='Threshold for cold-start users. Only for cold-start experiment.')
     parser.add_argument('--offset', type=int, default=0, help='Offset of cuda core.')
+    parser.add_argument('--save_dataset', action='store_true')
+    parser.add_argument('--save_dataloaders', action='store_true')
     return parser.parse_args()
 
 def get_model(model_type_str: str):
@@ -154,12 +156,14 @@ def get_model(model_type_str: str):
         model_type = KGNNLS
     elif model_type_str == 'KTUP':
         model_type = KTUP
-    elif model_type_str == 'MCCLK':
-        model_type = MCCLK
+    # elif model_type_str == 'MCCLK':
+    #     model_type = MCCLK
     elif model_type_str == 'MKR':
         model_type = MKR
-    elif model_type_str == 'MCRec':
-        model_type = MCRec
+    elif model_type_str == 'KGAT':
+        model_type = KGAT
+    # elif model_type_str == 'MCRec':
+    #     model_type = MCRec
     else:
         raise NameError('Invalid recommender system.')
     
@@ -177,13 +181,15 @@ def get_dataset(config_dict, dataset_str, model_type_str='KGCN'):
 
     return dataset
 
-def copy_dataset(suffix:str, src_path:str, temp_path:str, dataset_str:str):
+def copy_dataset(dataset_str:str, dst_dataset:str):
+    src_path = os.path.join('./dataset/', dataset_str)
+    temp_path = os.path.join('./dataset/', dst_dataset)
     if not os.path.exists(temp_path):
         os.makedirs(temp_path)
     for src_file in os.listdir(src_path):
         if os.path.isdir(os.path.join(src_path, src_file)):
             continue
-        temp_file = '{}-fake{}.{}'.format(dataset_str, suffix, src_file.split('.')[-1])
+        temp_file = f'{dst_dataset}.{src_file.split(".")[-1]}'
         copyfile(os.path.join(src_path, src_file), os.path.join(temp_path, temp_file))
 
 def filter_data(test_type_list, dataset_list, model_list, rate_list, result_path, experiment_type):
@@ -214,7 +220,8 @@ def add_self_relation(dataset: str):
         for i in entity_set:
             dst_file.write('{}\t{}\t{}\n'.format(i, 'self_to_self', i))
 
-def copy_dataset_and_filter(suffix:str, src_path:str, temp_path:str, dataset_str:str):
+def copy_dataset_and_filter(dataset_str:str, dst_dataset:str):
+    temp_path = os.path.join('./dataset/', dst_dataset)
     if not os.path.exists(temp_path):
         os.makedirs(temp_path)
     dataset = get_dataset({}, dataset_str)
@@ -233,6 +240,6 @@ def copy_dataset_and_filter(suffix:str, src_path:str, temp_path:str, dataset_str
     inter_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in inter_df.columns]
     kg_df.columns = [f'{column}:{type_dict.setdefault(column, "token")}' for column in kg_df.columns]
 
-    inter_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.inter'), sep='\t', index=False)
-    kg_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.kg'), sep='\t', index=False)
-    link_df.to_csv(os.path.join(temp_path, f'{dataset_str}-fake{suffix}.link'), sep='\t', index=False)
+    inter_df.to_csv(os.path.join(temp_path, f'{dst_dataset}.inter'), sep='\t', index=False)
+    kg_df.to_csv(os.path.join(temp_path, f'{dst_dataset}.kg'), sep='\t', index=False)
+    link_df.to_csv(os.path.join(temp_path, f'{dst_dataset}.link'), sep='\t', index=False)

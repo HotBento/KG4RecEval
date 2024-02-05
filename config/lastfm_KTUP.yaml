@@ -1,0 +1,6 @@
+L1_flag: False
+learning_rate: 0.01
+train_kg_step: 1
+train_rec_step: 10
+use_st_gumbel: True
+gpu_id: 5

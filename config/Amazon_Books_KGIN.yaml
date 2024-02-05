@@ -1,0 +1,6 @@
+context_hops: 2
+ind: 'distance'
+learning_rate: 0.005
+mess_dropout_rate: 0.1
+n_factors: 4
+node_dropout_rate: 0.3

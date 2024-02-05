@@ -1,0 +1,3 @@
+learning_rat: 0.005
+n_memory: 8
+train_neg_sample_args: {'sample_num':10}

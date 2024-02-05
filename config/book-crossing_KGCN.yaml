@@ -1,0 +1,5 @@
+aggregator: 'neighbor'
+earning_rate: 0.001
+l2_weight: 0.001
+n_iter: 1
+neighbor_sample_size: 4

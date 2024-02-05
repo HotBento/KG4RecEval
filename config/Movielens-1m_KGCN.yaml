@@ -1,0 +1,5 @@
+aggregator: 'concat'
+learning_rate: 0.001
+n_iter: 1
+neighbor_sample_size: 5
+reg_weight: 1e-05

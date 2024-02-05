@@ -1,12 +1,13 @@
 import os
 import torch
 import torch.multiprocessing as mp
+import random
 
 from utils import parse_args
 from eval import evaluate_kg, cold_start_evaluate
 import false_experiment, cold_start_experiment, decrease_experiment, noknowledge_experiment
 
-def run(args_queue:mp.Queue, device:torch.device):
+def run(args_queue:mp.Queue, device:torch.device, lock:mp.Lock):
     cnt = 0
     while True:
         args_dict = args_queue.get()
@@ -22,9 +23,9 @@ def run(args_queue:mp.Queue, device:torch.device):
         eval_times      : int   = args_dict['eval_times'] 
         model_type_str  : str   = args_dict['model_type_str']
         topk            : list  = args_dict['topk']
-        worker_num      : int   = args_dict['worker_num']
         metrics         : list  = args_dict['metrics']
-        suffix = str(device).split(':')[-1]
+        save_dataset    : bool  = args_dict['save_dataset']
+        save_dataloaders: bool  = args_dict['save_dataloaders']
 
         if experiment == 'false':
             run_once = false_experiment.run_once
@@ -40,37 +41,49 @@ def run(args_queue:mp.Queue, device:torch.device):
         print("{}_cnt:{}    run".format(device, cnt))
         for i in range(eval_times):
             # Mutant dataset generation
+            dst_dataset = f'{dataset}-{experiment}-{test_type}-{rate}-{i}'
             if experiment == 'coldstart':
-                args_dict['ptr'] = i
-            p = mp.Process(target=run_once, args=[args_dict, device])
-            p.start()
-            p.join()
+                dst_dataset = f"{dataset}-{experiment}-{test_type}-{rate}-{i}-{args_dict['cs_threshold']}-{args_dict['test_user_ratio']}"
+            lock.acquire()
+            if not os.path.exists(f'./dataset/{dst_dataset}'):
+                os.makedirs(f'./dataset/{dst_dataset}')
+                p = mp.Process(target=run_once, args=[args_dict, dst_dataset, i])
+                p.start()
+                p.join()
+            lock.release()
 
             # Evaluation
-            save_root = './result/{}/{}_experiment/{}_test'.format(dataset, experiment, test_type)
+            save_root = f'./result/{dataset}/{experiment}_experiment/{test_type}_test'
             if not os.path.exists(save_root):
                 try:
                     os.makedirs(save_root)
                 except:
                     pass
-            save_path = os.path.join(save_root, '{}_{}.txt'.format(model_type_str, rate))
-            fake_kg_path = '{}-fake{}'.format(dataset, suffix)
+            save_path = os.path.join(save_root, f'{model_type_str}_{rate}.txt')
+            
 
-            config_file = dataset + "_" + model_type_str + ".yaml"
+            config_file =  os.path.join('./config', dataset + "_" + model_type_str + ".yaml")
             if not os.path.exists(config_file):
                 config_file = None
             if experiment == 'coldstart':
                 save_path = os.path.join(save_root, '{}_{}_{}.txt'.format(model_type_str, rate, args_dict['cs_threshold']))
-                p = mp.Process(target=cold_start_evaluate, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, torch.cuda.device_count(), experiment,config_file])
+                p = mp.Process(target=cold_start_evaluate,
+                               args=[model_type_str, device, topk, save_path, dst_dataset,
+                                     metrics, experiment, config_file, i, save_dataset, save_dataloaders, lock])
             else:
-                p = mp.Process(target=evaluate_kg, args=[model_type_str, device, topk, save_path, fake_kg_path, metrics, torch.cuda.device_count(), experiment,config_file])
+                p = mp.Process(target=evaluate_kg,
+                               args=[model_type_str, device, topk, save_path, dst_dataset,
+                                     metrics, experiment, config_file, i, save_dataset, save_dataloaders, lock])
             p.start()
             p.join()
         cnt += 1
     return 0
 
 if __name__ == '__main__':
+    random.seed(0)
+    torch.random.manual_seed(0)
     mp.set_start_method('spawn')
+    lock = mp.Lock()
     args = parse_args()
     queue = mp.Queue()
     offset = args.offset
@@ -80,7 +93,7 @@ if __name__ == '__main__':
         all_test_users = []
         for i in range(args.eval_times):
             p = mp.Process(target=cold_start_experiment.generate_test_user_list,
-                           args=[con1, args.dataset, args.test_user_ratio])
+                           args=[con1, args.dataset, args.test_user_ratio, torch.device(f'cuda:{offset}'), 0])
             p.start()
             all_test_users.append(con2.recv())
             # print(all_test_users[-1])
@@ -106,8 +119,10 @@ if __name__ == '__main__':
                 args_dict['model_type_str']         = model_type_str
                 args_dict['eval_times']             = args.eval_times
                 args_dict['topk']                   = args.topk
-                args_dict['worker_num']             = args.worker_num + offset
+                # args_dict['worker_num']             = args.worker_num + offset
                 args_dict['metrics']                = args.metrics
+                args_dict['save_dataset']           = args.save_dataset
+                args_dict['save_dataloaders']       = args.save_dataloaders
                 if args.experiment == 'coldstart':
                     args_dict['all_test_users'] = all_test_users
                     args_dict['cs_threshold'] = args.cs_threshold
@@ -117,7 +132,7 @@ if __name__ == '__main__':
         queue.put(None)
     process_list = []
     for i in range(offset,offset+args.worker_num):
-        p = mp.Process(target=run, args=[queue, torch.device('cuda:'+str(i))])
+        p = mp.Process(target=run, args=[queue, torch.device('cuda:'+str(i)), lock])
         p.start()
         process_list.append(p)
     for p in process_list:

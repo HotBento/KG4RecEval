@@ -1,5 +1,5 @@
 # KG4RecEval
-Official implement of paper "Does Knowledge Graph Really Matter for Recommender Systems?", SIGIR 2024.
+Official implement of paper "Does Knowledge Graph Really Matter for Recommender Systems?"
 
 ## Requirements
 Tested on python 3.9 and Ubuntu 20.04.

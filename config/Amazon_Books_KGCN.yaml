@@ -1,5 +1,5 @@
 aggregator: 'concat'
-earning_rate: 0.002
+learning_rate: 0.002
 l2_weight: 1e-05
 n_iter: 1
 neighbor_sample_size: 4

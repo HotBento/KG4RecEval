@@ -4,4 +4,3 @@ learning_rate: 0.005
 mess_dropout_rate: 0.0
 n_factors: 4
 node_dropout_rate: 0.5
-gpu_id: 5
